@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rpong</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+        }
+
+        canvas {
+            border: 2px solid #fff;
+            display: block;
+        }
+
+        #message {
+            margin-top: 16px;
+            font-size: 14px;
+            color: #aaa;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game"></canvas>
+    <div id="message">Press Space or Enter to start</div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const msg = document.getElementById('message');
+
+        // Responsive canvas: fill most of the viewport while keeping 3:2
+        function resize() {
+            const maxW = Math.min(window.innerWidth - 32, 900);
+            const maxH = window.innerHeight - 100;
+            const scale = Math.min(maxW / 900, maxH / 600);
+            canvas.width  = Math.floor(900 * scale);
+            canvas.height = Math.floor(600 * scale);
+        }
+        resize();
+        window.addEventListener('resize', () => { resize(); draw(); });
+
+        // Logical game dimensions — all positions use these units
+        const W = 900, H = 600;
+
+        const PADDLE_W = 14, PADDLE_H = 90, PADDLE_SPEED = 6;
+        const BALL_SIZE = 12;
+        const WIN_SCORE = 7;
+
+        const state = {
+            running: false,
+            over: false,
+            leftScore: 0,
+            rightScore: 0,
+            left:  { y: H / 2 - PADDLE_H / 2 },
+            right: { y: H / 2 - PADDLE_H / 2 },
+            ball:  { x: W / 2, y: H / 2, vx: 0, vy: 0 },
+        };
+
+        const keys = {};
+        document.addEventListener('keydown', e => {
+            keys[e.key] = true;
+            if ((e.key === ' ' || e.key === 'Enter') && !state.running) {
+                startRound();
+            }
+        });
+        document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+        // Touch: drag to control right paddle
+        let touchY = null;
+        canvas.addEventListener('touchstart', e => {
+            touchY = e.touches[0].clientY;
+            if (!state.running) startRound();
+            e.preventDefault();
+        }, { passive: false });
+        canvas.addEventListener('touchmove', e => {
+            if (touchY === null) return;
+            const dy = e.touches[0].clientY - touchY;
+            touchY = e.touches[0].clientY;
+            state.right.y = clamp(state.right.y + dy * (H / canvas.height), 0, H - PADDLE_H);
+            e.preventDefault();
+        }, { passive: false });
+        canvas.addEventListener('touchend', () => { touchY = null; });
+
+        function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+        function launchBall() {
+            const angle = (Math.random() * 60 - 30) * Math.PI / 180;
+            const dir   = Math.random() < 0.5 ? 1 : -1;
+            const speed = 5.5;
+            state.ball.x  = W / 2;
+            state.ball.y  = H / 2;
+            state.ball.vx = dir * speed * Math.cos(angle);
+            state.ball.vy = speed * Math.sin(angle);
+        }
+
+        function startRound() {
+            if (state.over) {
+                state.leftScore  = 0;
+                state.rightScore = 0;
+                state.over = false;
+            }
+            state.left.y  = H / 2 - PADDLE_H / 2;
+            state.right.y = H / 2 - PADDLE_H / 2;
+            launchBall();
+            state.running = true;
+            msg.textContent = '↑ / ↓ — move paddle';
+        }
+
+        function moveAI(paddle) {
+            const center = paddle.y + PADDLE_H / 2;
+            const diff   = state.ball.y - center;
+            paddle.y = clamp(paddle.y + Math.sign(diff) * Math.min(Math.abs(diff), 4.2), 0, H - PADDLE_H);
+        }
+
+        function movePlayer(paddle) {
+            if (keys['ArrowUp']) {
+                paddle.y = clamp(paddle.y - PADDLE_SPEED, 0, H - PADDLE_H);
+            } else if (keys['ArrowDown']) {
+                paddle.y = clamp(paddle.y + PADDLE_SPEED, 0, H - PADDLE_H);
+            }
+        }
+
+        function update() {
+            if (!state.running) return;
+
+            moveAI(state.left);
+            movePlayer(state.right);
+
+            // Move ball
+            state.ball.x += state.ball.vx;
+            state.ball.y += state.ball.vy;
+
+            // Top / bottom wall bounce
+            if (state.ball.y - BALL_SIZE / 2 <= 0) {
+                state.ball.y  = BALL_SIZE / 2;
+                state.ball.vy = Math.abs(state.ball.vy);
+            }
+            if (state.ball.y + BALL_SIZE / 2 >= H) {
+                state.ball.y  = H - BALL_SIZE / 2;
+                state.ball.vy = -Math.abs(state.ball.vy);
+            }
+
+            // Paddle hit: returns deflected vx/vy or null if no hit
+            function paddleDeflect(px, py, goingLeft) {
+                const half = BALL_SIZE / 2;
+                const hit  = (
+                    state.ball.x + half > px &&
+                    state.ball.x - half < px + PADDLE_W &&
+                    state.ball.y + half > py &&
+                    state.ball.y - half < py + PADDLE_H
+                );
+                if (!hit) return false;
+
+                const rel   = (state.ball.y - (py + PADDLE_H / 2)) / (PADDLE_H / 2);
+                const jitter = (Math.random() - 0.5) * 12 * Math.PI / 180;
+                const angle = rel * 60 * Math.PI / 180 + jitter;
+                const speed = Math.min(Math.hypot(state.ball.vx, state.ball.vy) * 1.05, 14);
+                state.ball.vx = (goingLeft ? -1 : 1) * speed * Math.cos(angle);
+                state.ball.vy = speed * Math.sin(angle);
+                return true;
+            }
+
+            const leftPaddleX  = PADDLE_W * 2;
+            const rightPaddleX = W - PADDLE_W * 3;
+
+            if (state.ball.vx < 0 && paddleDeflect(leftPaddleX, state.left.y, false)) {
+                state.ball.x = leftPaddleX + PADDLE_W + BALL_SIZE / 2;
+            }
+            if (state.ball.vx > 0 && paddleDeflect(rightPaddleX, state.right.y, true)) {
+                state.ball.x = rightPaddleX - BALL_SIZE / 2;
+            }
+
+            // Score
+            if (state.ball.x < 0) {
+                state.rightScore++;
+                endRally('Right');
+            } else if (state.ball.x > W) {
+                state.leftScore++;
+                endRally('Left');
+            }
+        }
+
+        function endRally(scorer) {
+            state.running = false;
+            if (state.leftScore >= WIN_SCORE || state.rightScore >= WIN_SCORE) {
+                state.over = true;
+                msg.textContent = `${scorer} wins!  Press Space or Enter to play again`;
+            } else {
+                msg.textContent = 'Press Space or Enter for next point';
+            }
+        }
+
+        // Scale logical unit → canvas pixels
+        function s(v) { return v * (canvas.width / W); }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Center dashed line
+            ctx.setLineDash([s(10), s(14)]);
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = s(3);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Scores
+            ctx.fillStyle = '#fff';
+            ctx.font = `bold ${s(60)}px 'Courier New', monospace`;
+            ctx.textAlign = 'center';
+            ctx.fillText(state.leftScore,  canvas.width * 0.25, s(80));
+            ctx.fillText(state.rightScore, canvas.width * 0.75, s(80));
+
+            // Paddles
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(s(PADDLE_W * 2),       s(state.left.y),  s(PADDLE_W), s(PADDLE_H));
+            ctx.fillRect(s(W - PADDLE_W * 3),   s(state.right.y), s(PADDLE_W), s(PADDLE_H));
+
+            // Ball
+            ctx.fillRect(
+                s(state.ball.x - BALL_SIZE / 2),
+                s(state.ball.y - BALL_SIZE / 2),
+                s(BALL_SIZE), s(BALL_SIZE)
+            );
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
