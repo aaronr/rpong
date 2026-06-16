@@ -80,6 +80,16 @@
             if ((e.key === ' ' || e.key === 'Enter') && !state.running) {
                 startRound();
             }
+            if (e.key === 'Escape') {
+                state.running    = false;
+                state.over       = false;
+                state.leftScore  = 0;
+                state.rightScore = 0;
+                state.left.y     = H / 2 - PADDLE_H / 2;
+                state.right.y    = H / 2 - PADDLE_H / 2;
+                state.ball       = { x: W / 2, y: H / 2, vx: 0, vy: 0 };
+                msg.textContent  = 'Press Space or Enter to start';
+            }
         });
         document.addEventListener('keyup', e => { keys[e.key] = false; });
 
