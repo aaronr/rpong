@@ -250,11 +250,9 @@
             ctx.fillRect(s(W - PADDLE_W * 3),   s(state.right.y), s(PADDLE_W), s(PADDLE_H));
 
             // Ball
-            ctx.fillRect(
-                s(state.ball.x - BALL_SIZE / 2),
-                s(state.ball.y - BALL_SIZE / 2),
-                s(BALL_SIZE), s(BALL_SIZE)
-            );
+            ctx.beginPath();
+            ctx.arc(s(state.ball.x), s(state.ball.y), s(BALL_SIZE / 2), 0, Math.PI * 2);
+            ctx.fill();
         }
 
         function loop() {
